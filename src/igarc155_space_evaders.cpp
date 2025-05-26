@@ -68,6 +68,13 @@ void TimerISR() {
         tasks[i].elapsedTime += GCD_PERIOD;
     }
 }
+void PWM_BuzzerInit() {
+    DDRD |= (1 << PB0); // Output on OC0A
+    TCCR0A |= (1 << COM0A1) | (1 << WGM01) | (1 << WGM00); // Fast PWM, non-inverting
+    TCCR0B |= (1 << CS01); // Prescaler 8
+    OCR0A = 0; // Initially off
+}
+
 
 long map(long x, long in_min, long in_max, long out_min, long out_max) {
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
@@ -143,12 +150,16 @@ int TickFct_FireButton(int state){
         case FIRE_WAIT:
             fireActive = 0;
             fireHeld = 0;
+            OCR0A = 0;
+
             break;
         case FIRE_SHOOT:
             fireActive = 1;
             if(!fireHeld){
                 score++;
                 fireHeld = 1;
+                OCR0A = 100; // Enable tone
+                TCCR0B |= (1 << CS01);
             }
             break;
     }
@@ -164,14 +175,14 @@ int main(void) {
     PORTD = 0x00;
 
     ADC_init();
+    PWM_BuzzerInit();
     lcd_init();
-    lcd_send_command(0x40);
-    _delay_us(40);
+    lcd_send_command(0x40); // Set CGRAM address to 0 (character 0)
+
     for (int i = 0; i < 8; i++) {
-        lcd_write_character(ship_char[i]);
+        lcd_write_character(ship_char[i]); // Sends one row of 5-bit pattern
         _delay_us(40);
     }
-    _delay_ms(2);
 
     // Task setup
     tasks[0].state = MOVE_INIT;
