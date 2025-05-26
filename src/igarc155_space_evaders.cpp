@@ -27,14 +27,14 @@
 #define NUM_TASKS 3
 
 uint8_t ship_char[8] = { // spaceship design
-  0b10001,
-  0b10101,
-  0b11111,
-  0b01110,
-  0b01110,
+  0b00000,
+  0b00010,
+  0b00110,
   0b01110,
   0b11111,
-  0b11111,
+  0b01110,
+  0b00110,
+  0b00010
 };
 
 // Task struct for concurrent synchSMs
