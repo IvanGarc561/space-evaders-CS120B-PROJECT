@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_TASKS 3
+#define NUM_TASKS 4
 
 uint8_t ship_char[8] = { // spaceship design
   0b10001,
@@ -45,9 +45,10 @@ typedef struct _task {
     int (*TickFct)(int);
 } task;
 
-const unsigned long TASK0_PERIOD = 100;    // Joystick movement
-const unsigned long TASK1_PERIOD = 200;    // LCD display (score/lives)
-const unsigned long TASK2_PERIOD = 100;    // Fire button
+const unsigned long JOYSTICK_PERIOD = 100;    // Joystick movement
+const unsigned long LCD_PERIOD = 200;    // LCD display (score/lives)
+const unsigned long FIRE_PERIOD = 100;    // Fire button
+const unsigned long LED_PERIOD = 300; // LEDS display
 const unsigned long GCD_PERIOD = 1;
 
 task tasks[NUM_TASKS];
@@ -155,6 +156,51 @@ int TickFct_FireButton(int state){
     return state;
 }
 
+// 4. LED Display Task
+enum LED_States {LED_INIT, LED_BLINK};
+int TickFct_LED(int state) {
+    static uint8_t blinkState = 0;
+
+    switch (state) {
+        case LED_INIT:
+            state = LED_BLINK;
+            break;
+        case LED_BLINK:
+            state = LED_BLINK;
+            break;
+        default:
+            state = LED_INIT;
+            break;
+    }
+
+    switch (lives) {
+        case 3:
+            PORTB = SetBit(PORTB, 1, 1); 
+            PORTB = SetBit(PORTB, 2, 1); 
+            PORTB = SetBit(PORTB, 3, 1);
+            break;
+        case 2:
+            PORTB = SetBit(PORTB, 1, 1); 
+            PORTB = SetBit(PORTB, 2, 1); 
+            PORTB = SetBit(PORTB, 3, 0); 
+            break;
+        case 1:
+            blinkState = !blinkState;
+            PORTB = SetBit(PORTB, 1, blinkState); 
+            PORTB = SetBit(PORTB, 2, 0);          
+            PORTB = SetBit(PORTB, 3, 0);          
+            break;
+        default: // dead
+            blinkState = !blinkState;
+            PORTB = SetBit(PORTB, 1, blinkState);
+            PORTB = SetBit(PORTB, 2, !blinkState);
+            PORTB = SetBit(PORTB, 3, blinkState);
+            break;
+    }
+
+    return state;
+}
+
 int main(void) {
     DDRC = 0x00; 
     PORTC = 0xFF; // PC3 is fire button
@@ -175,19 +221,24 @@ int main(void) {
 
     // Task setup
     tasks[0].state = MOVE_INIT;
-    tasks[0].period = TASK0_PERIOD;
+    tasks[0].period = JOYSTICK_PERIOD;
     tasks[0].elapsedTime = 0;
     tasks[0].TickFct = &TickFct_JoystickMove;
 
     tasks[1].state = DISPLAY;
-    tasks[1].period = TASK1_PERIOD;
+    tasks[1].period = LCD_PERIOD;
     tasks[1].elapsedTime = 0;
     tasks[1].TickFct = &TickFct_LCD;
 
     tasks[2].state = FIRE_WAIT;
-    tasks[2].period = TASK2_PERIOD;
+    tasks[2].period = FIRE_PERIOD;
     tasks[2].elapsedTime = 0;
     tasks[2].TickFct = &TickFct_FireButton;
+
+    tasks[3].state = LED_INIT;
+    tasks[3].period = LED_PERIOD;
+    tasks[3].elapsedTime = 0;
+    tasks[3].TickFct = &TickFct_LED;
 
     TimerSet(GCD_PERIOD);
     TimerOn();
