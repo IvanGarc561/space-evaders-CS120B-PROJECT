@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_TASKS 4
+#define NUM_TASKS 5
 
 uint8_t ship_char[8] = { // spaceship design
   0b10001,
@@ -49,6 +49,7 @@ const unsigned long JOYSTICK_PERIOD = 100;    // Joystick movement
 const unsigned long LCD_PERIOD = 200;    // LCD display (score/lives)
 const unsigned long FIRE_PERIOD = 100;    // Fire button
 const unsigned long LED_PERIOD = 300; // LEDS display
+const unsigned long RESET_PERIOD = 100; // Resets entire game
 const unsigned long GCD_PERIOD = 1;
 
 task tasks[NUM_TASKS];
@@ -59,6 +60,7 @@ volatile unsigned char lives = 3;
 volatile uint8_t currentPos = 0;
 volatile uint8_t fireActive = 0;
 volatile uint8_t fireHeld = 0;
+volatile uint8_t resetFlag = 0;
 
 void TimerISR() {
     for (unsigned int i = 0; i < NUM_TASKS; i++) {
@@ -201,6 +203,40 @@ int TickFct_LED(int state) {
     return state;
 }
 
+// 5. Reset Button Task
+enum Reset_States {RESET_WAIT, RESET_PRESS};
+int TickFct_ResetButton(int state) {
+    uint8_t resetPressed = (PINC & (1 << PC4)); // Active LOW
+
+    switch (state) {
+        case RESET_WAIT:
+            state = resetPressed ? RESET_PRESS : RESET_WAIT;
+            break;
+        case RESET_PRESS:
+            resetFlag = 1;
+            state = resetPressed ? RESET_PRESS : RESET_WAIT;
+            break;
+        default:
+            state = RESET_WAIT;
+            break;
+    }
+
+    switch (state) {
+        case RESET_WAIT:
+            break;
+        case RESET_PRESS:
+            score = 0;
+            lives = 3;
+            fireActive = 0;
+            fireHeld = 0;
+            lcd_clear(); 
+            resetFlag = 0;
+            break;
+    }
+
+    return state;
+}
+
 int main(void) {
     DDRC = 0x00; 
     PORTC = 0xFF; // PC3 is fire button
@@ -239,6 +275,11 @@ int main(void) {
     tasks[3].period = LED_PERIOD;
     tasks[3].elapsedTime = 0;
     tasks[3].TickFct = &TickFct_LED;
+
+    tasks[4].state = RESET_WAIT;
+    tasks[4].period = RESET_PERIOD;
+    tasks[4].elapsedTime = 0;
+    tasks[4].TickFct = &TickFct_ResetButton;
 
     TimerSet(GCD_PERIOD);
     TimerOn();
