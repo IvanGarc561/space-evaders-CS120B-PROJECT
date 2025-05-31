@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_TASKS 5
+#define NUM_TASKS 6
 
 uint8_t ship_char[8] = { // spaceship design
   0b10001,
@@ -46,7 +46,7 @@ typedef struct _task {
 } task;
 
 const unsigned long JOYSTICK_PERIOD = 100;    // Joystick movement
-const unsigned long LCD_PERIOD = 200;    // LCD display (score/lives)
+const unsigned long LCD_PERIOD = 200;    // LCD display
 const unsigned long FIRE_PERIOD = 100;    // Fire button
 const unsigned long LED_PERIOD = 300; // LEDS display
 const unsigned long RESET_PERIOD = 100; // Resets entire game
@@ -59,8 +59,18 @@ volatile unsigned char score = 0;
 volatile unsigned char lives = 3;
 volatile uint8_t currentPos = 0;
 volatile uint8_t fireActive = 0;
-volatile uint8_t fireHeld = 0;
-volatile uint8_t resetFlag = 0;
+volatile uint8_t fired = 0;
+volatile uint8_t resetTrigger = 0;
+volatile uint8_t buzzerOn = 0;
+volatile uint8_t buzzerTicks = 0;
+
+void PWM_BuzzerInit() { // Tried using PB0 but does not work so PB1 only works
+    DDRB |= (1 << PB1); // PB1 = OC1A
+    TCCR1A = (1 << COM1A0); 
+    TCCR1B = (1 << WGM12) | (1 << CS11);
+    OCR1A = 255; 
+}
+
 
 void TimerISR() {
     for (unsigned int i = 0; i < NUM_TASKS; i++) {
@@ -82,7 +92,9 @@ int TickFct_JoystickMove(int state) {
     static uint8_t prevPos = 0;
     unsigned int x = ADC_read(0);
     uint8_t pos = map(x, 0, 1023, 0, 15);
-    if (pos > 15) pos = 15;
+    if (pos > 15){
+        pos = 15; // based on lcd position
+    }
 
     currentPos = pos;
 
@@ -101,7 +113,6 @@ int TickFct_JoystickMove(int state) {
     if (pos != prevPos || fireActive) {
         lcd_goto_xy(1, prevPos);
         lcd_write_character(' ');
-
         lcd_goto_xy(1, pos);
         lcd_write_character(fireActive ? '|' : 0);
 
@@ -132,10 +143,18 @@ int TickFct_FireButton(int state){
 
     switch(state){
         case FIRE_WAIT:
-            state = (firePressed) ? FIRE_SHOOT : FIRE_WAIT;
+            if (firePressed) {
+                state = FIRE_SHOOT;
+            } else {
+                state = FIRE_WAIT;
+            }
             break;
         case FIRE_SHOOT:
-            state = (!firePressed) ? FIRE_WAIT : FIRE_SHOOT;
+            if(!firePressed){
+                state = FIRE_WAIT;
+            } else{
+                state = FIRE_SHOOT;
+            }
             break;
         default:
             state = FIRE_WAIT;
@@ -145,13 +164,16 @@ int TickFct_FireButton(int state){
     switch(state){
         case FIRE_WAIT:
             fireActive = 0;
-            fireHeld = 0;
+            fired = 0;
             break;
         case FIRE_SHOOT:
             fireActive = 1;
-            if(!fireHeld){
+            if(!fired){
                 score++;
-                fireHeld = 1;
+                fired = 1;
+                buzzerOn = 1;
+                OCR1A = 100;
+                buzzerTicks = 5;
             }
             break;
     }
@@ -177,24 +199,24 @@ int TickFct_LED(int state) {
 
     switch (lives) {
         case 3:
-            PORTB = SetBit(PORTB, 1, 1); 
+            PORTB = SetBit(PORTB, 0, 1); 
             PORTB = SetBit(PORTB, 2, 1); 
             PORTB = SetBit(PORTB, 3, 1);
             break;
         case 2:
-            PORTB = SetBit(PORTB, 1, 1); 
+            PORTB = SetBit(PORTB, 0, 1); 
             PORTB = SetBit(PORTB, 2, 1); 
             PORTB = SetBit(PORTB, 3, 0); 
             break;
         case 1:
             blinkState = !blinkState;
-            PORTB = SetBit(PORTB, 1, blinkState); 
+            PORTB = SetBit(PORTB, 0, blinkState); 
             PORTB = SetBit(PORTB, 2, 0);          
             PORTB = SetBit(PORTB, 3, 0);          
             break;
-        default: // dead
+        default: //dead 
             blinkState = !blinkState;
-            PORTB = SetBit(PORTB, 1, blinkState);
+            PORTB = SetBit(PORTB, 0, blinkState);
             PORTB = SetBit(PORTB, 2, !blinkState);
             PORTB = SetBit(PORTB, 3, blinkState);
             break;
@@ -206,14 +228,14 @@ int TickFct_LED(int state) {
 // 5. Reset Button Task
 enum Reset_States {RESET_WAIT, RESET_PRESS};
 int TickFct_ResetButton(int state) {
-    uint8_t resetPressed = (PINC & (1 << PC4)); // Active LOW
+    uint8_t resetPressed = (PINC & (1 << PC4)); 
 
     switch (state) {
         case RESET_WAIT:
             state = resetPressed ? RESET_PRESS : RESET_WAIT;
             break;
         case RESET_PRESS:
-            resetFlag = 1;
+            resetTrigger = 1;
             state = resetPressed ? RESET_PRESS : RESET_WAIT;
             break;
         default:
@@ -225,12 +247,45 @@ int TickFct_ResetButton(int state) {
         case RESET_WAIT:
             break;
         case RESET_PRESS:
+            buzzerOn = 1;
+            OCR1A = 255;
+            buzzerTicks = 100; // Makes it longer than a fire
             score = 0;
             lives = 3;
             fireActive = 0;
-            fireHeld = 0;
+            fired = 0;
             lcd_clear(); 
-            resetFlag = 0;
+            resetTrigger= 0;
+            break;
+    }
+
+    return state;
+}
+// 6. Buzzer Task
+enum Buzzer_States {BUZZER_WAIT, BUZZER_ON};
+int TickFct_Buzzer(int state) {
+    switch (state) {
+        case BUZZER_WAIT:
+            state = (buzzerOn) ? BUZZER_ON : BUZZER_WAIT;
+            break;
+        case BUZZER_ON:
+            state = (buzzerTicks == 0) ? BUZZER_WAIT : BUZZER_ON;
+            break;
+        default:
+            state = BUZZER_WAIT;
+            break;
+    }
+
+    switch (state) {
+        case BUZZER_WAIT:
+            OCR1A = 0;
+            break;
+        case BUZZER_ON:
+            if (buzzerTicks > 0) {
+                buzzerTicks--;
+            } else {
+                buzzerOn = 0;
+            }
             break;
     }
 
@@ -247,11 +302,10 @@ int main(void) {
 
     ADC_init();
     lcd_init();
+    PWM_BuzzerInit();
     lcd_send_command(0x40);
-    _delay_us(40);
     for (int i = 0; i < 8; i++) {
         lcd_write_character(ship_char[i]);
-        _delay_us(40);
     }
     _delay_ms(2);
 
@@ -280,6 +334,11 @@ int main(void) {
     tasks[4].period = RESET_PERIOD;
     tasks[4].elapsedTime = 0;
     tasks[4].TickFct = &TickFct_ResetButton;
+
+    tasks[5].state = BUZZER_WAIT;
+    tasks[5].period = GCD_PERIOD;
+    tasks[5].elapsedTime = 0;
+    tasks[5].TickFct = &TickFct_Buzzer;
 
     TimerSet(GCD_PERIOD);
     TimerOn();
