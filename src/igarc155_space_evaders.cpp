@@ -325,7 +325,6 @@ int TickFct_Enemy(int state) {
     }
 
     if (enemyAttack) {
-        // Clear previous enemy
         lcd_goto_xy(0, enemyPos);
         lcd_write_character(' ');
         if(gameStarted){
@@ -342,7 +341,7 @@ int TickFct_Enemy(int state) {
 
 int main(void) {
     DDRC = 0x00; 
-    PORTC = 0xFF; // PC3 is fire button
+    PORTC = 0xFF;
     DDRB = 0xFF; 
     PORTB = 0x00;
     DDRD = 0xFF; 
