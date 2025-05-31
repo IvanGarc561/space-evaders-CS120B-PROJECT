@@ -5,7 +5,10 @@
 
  *         Exercise Description: As of now the joystick moves a custom character around based on sensitvity on the x axis does not
             move up or down and currently testing how it will keep track of score and lives and when I hit the button it will increase
-            score and change character to '|' representing laser on the 16 x 2 LCD
+            score and change character to '|' representing laser on the 16 x 2 LCD. Update Week 9: I have added teh buzzer function however
+            I used PB1 instead of PB0 because I couldn't figure it out so I switched LED 1 with Buzzer so now they are complements to each other.
+            Also, I have added a start screen when you reset and have started spawning in enemies but I have to get the enemeies a special character
+            and laser detection must be done by week 10 and finally last feature left is collision and death but I will get all of this done soon.
 			
  *        
 
@@ -13,7 +16,7 @@
 
  *
 
- *         Demo Link: https://youtu.be/ONtsrxCaEzs
+ *         Demo Link: https://youtu.be/aCPlPonD-3A
 
  */
 #include "timerISR.h"
@@ -24,9 +27,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_TASKS 6
+#define NUM_TASKS 7
 
-uint8_t ship_char[8] = { // spaceship design
+uint8_t ship_char[8] = { // spaceship design or you the player
   0b10001,
   0b10101,
   0b11111,
@@ -50,6 +53,7 @@ const unsigned long LCD_PERIOD = 200;    // LCD display
 const unsigned long FIRE_PERIOD = 100;    // Fire button
 const unsigned long LED_PERIOD = 300; // LEDS display
 const unsigned long RESET_PERIOD = 100; // Resets entire game
+const unsigned long ENEMY_PERIOD = 400; // Spawn enemies
 const unsigned long GCD_PERIOD = 1;
 
 task tasks[NUM_TASKS];
@@ -58,11 +62,15 @@ task tasks[NUM_TASKS];
 volatile unsigned char score = 0;
 volatile unsigned char lives = 3;
 volatile uint8_t currentPos = 0;
-volatile uint8_t fireActive = 0;
-volatile uint8_t fired = 0;
-volatile uint8_t resetTrigger = 0;
-volatile uint8_t buzzerOn = 0;
-volatile uint8_t buzzerTicks = 0;
+volatile unsigned char fireActive = 0;
+volatile unsigned char fired = 0;
+volatile unsigned char resetTrigger = 0;
+volatile unsigned char buzzerOn = 0;
+volatile unsigned char buzzerTicks = 0;
+volatile uint8_t enemyPos = 15;
+volatile unsigned char enemyAttack = 1;
+volatile unsigned char gameStarted = 0;
+volatile unsigned char gameEnded = 0;
 
 void PWM_BuzzerInit() { // Tried using PB0 but does not work so PB1 only works
     DDRB |= (1 << PB1); // PB1 = OC1A
@@ -111,6 +119,7 @@ int TickFct_JoystickMove(int state) {
     }
 
     if (pos != prevPos || fireActive) {
+        gameStarted = 1;
         lcd_goto_xy(1, prevPos);
         lcd_write_character(' ');
         lcd_goto_xy(1, pos);
@@ -128,9 +137,15 @@ int TickFct_LCD(int state){
     char message[17];
     switch (state) {
         case DISPLAY:
+            if(!gameStarted || gameEnded){
             lcd_goto_xy(0, 0);
             sprintf(message, "Score:%d L:%d", score, lives);
             lcd_write_str(message);
+            }
+            else if (gameStarted){
+                sprintf(message, " ");
+                lcd_write_str(message);
+            }
             break;
     }
     return state;
@@ -219,6 +234,7 @@ int TickFct_LED(int state) {
             PORTB = SetBit(PORTB, 0, blinkState);
             PORTB = SetBit(PORTB, 2, !blinkState);
             PORTB = SetBit(PORTB, 3, blinkState);
+            gameEnded = 1;
             break;
     }
 
@@ -254,7 +270,9 @@ int TickFct_ResetButton(int state) {
             lives = 3;
             fireActive = 0;
             fired = 0;
-            lcd_clear(); 
+            lcd_clear();
+            gameStarted = 0;
+            gameEnded = 0; 
             resetTrigger= 0;
             break;
     }
@@ -291,6 +309,36 @@ int TickFct_Buzzer(int state) {
 
     return state;
 }
+// 7. Enemy Task
+enum Enemy_States {ENEMY_START, ENEMY_MOVE};
+int TickFct_Enemy(int state) {
+    switch (state) {
+        case ENEMY_START:
+            state = ENEMY_MOVE;
+            break;
+        case ENEMY_MOVE:
+            state = ENEMY_MOVE;
+            break;
+        default:
+            state = ENEMY_START;
+            break;
+    }
+
+    if (enemyAttack) {
+        // Clear previous enemy
+        lcd_goto_xy(0, enemyPos);
+        lcd_write_character(' ');
+        if(gameStarted){
+            enemyPos = (rand() % 15) + 1;
+            // Draw enemy only temporary not permenant must design a custom character
+            lcd_goto_xy(0, enemyPos);
+            lcd_write_character('E');
+        }
+    }
+
+    return state;
+}
+
 
 int main(void) {
     DDRC = 0x00; 
@@ -339,6 +387,12 @@ int main(void) {
     tasks[5].period = GCD_PERIOD;
     tasks[5].elapsedTime = 0;
     tasks[5].TickFct = &TickFct_Buzzer;
+
+    tasks[6].state = ENEMY_START;
+    tasks[6].period = ENEMY_PERIOD;
+    tasks[6].elapsedTime = 0;
+    tasks[6].TickFct = &TickFct_Enemy;
+
 
     TimerSet(GCD_PERIOD);
     TimerOn();
