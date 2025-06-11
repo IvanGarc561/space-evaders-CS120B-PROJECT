@@ -159,13 +159,19 @@ int TickFct_LCD(int state){
     char message[17];
     switch (state) {
         case DISPLAY:
-            if(!gameStarted || gameEnded){
+            if(!gameStarted && !gameEnded){
+                lcd_goto_xy(0, 0);
+                lcd_write_str("Press FIRE to");
+                lcd_goto_xy(1, 0);
+                lcd_write_str("Start the game!");
+            } else if(!gameStarted && gameEnded){
             lcd_goto_xy(0, 0);
             sprintf(message, "Score:%d L:%d", score, lives);
             lcd_write_str(message);
-            }
-            else if (gameStarted){
+            } else if (gameStarted){
                 lcd_goto_xy(0, 0);
+                lcd_write_str("                ");
+                lcd_goto_xy(1, 0);
                 lcd_write_str("                ");
             }
             break;
@@ -207,7 +213,7 @@ int TickFct_FireButton(int state){
             break;
         case FIRE_SHOOT:
             fireActive = 1;
-            if (!fired && !gameEnded) {
+            if (!fired && !gameEnded && gameStarted) {
                 fired = 1;
                 fireActive = 1;
 
@@ -351,7 +357,7 @@ int TickFct_Asteroid(int state) {
                 return state; // Don't spawn anything yet
             }
 
-            asteroidX = (rand() % 16);
+            asteroidX = (rand() % 15);
             asteroidY = 0;
             asteroidActive = 1;
             state = ASTEROID_WAIT;
@@ -445,8 +451,10 @@ int TickFct_Laser(int state) {
             break;
 
         case LASER_MOVE:
-            if (!laserActive) {
-                state = LASER_WAIT;
+            if (laserY > 1 || !laserActive) {
+                // Off screen
+                laserActive = 0;
+                return LASER_WAIT;
             } else{
                 state = LASER_MOVE;
             }
@@ -462,23 +470,15 @@ int TickFct_Laser(int state) {
     } 
     switch(state){
         case LASER_MOVE:
-            // Clear previous position
-            if (laserY < 2) {
-                lcd_goto_xy(laserY, laserX);
-                lcd_write_character(' ');
-            }
-
-            laserY--;
-
-            if (laserY > 1) {
-                // Off screen
-                laserActive = 0;
-                return LASER_WAIT;
-            }
-
             // Draw new laser
             lcd_goto_xy(laserY, laserX);
             lcd_write_character('|');
+
+            // Clear previous position
+            if (laserY < 1) {
+                lcd_goto_xy(laserY + 1, laserX);
+                lcd_write_character(' ');
+            }
 
             // Checks for hit
             if (laserY == asteroidY && laserX == asteroidX) {
@@ -492,6 +492,11 @@ int TickFct_Laser(int state) {
 
                 OCR1A = 250; // hit tone
                 buzzerTicks = 100;
+            }
+            if(laserY == 0){
+                laserActive = 0;
+            } else {
+                laserY--;
             }
             break;
     }
