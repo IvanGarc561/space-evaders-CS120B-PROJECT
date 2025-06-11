@@ -27,7 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_TASKS 7
+#define NUM_TASKS 8
 
 uint8_t ship_char[8] = { // spaceship design or you the player
   0b10001,
@@ -53,12 +53,12 @@ const unsigned long LCD_PERIOD = 200;    // LCD display
 const unsigned long FIRE_PERIOD = 100;    // Fire button
 const unsigned long LED_PERIOD = 300; // LEDS display
 const unsigned long RESET_PERIOD = 100; // Resets entire game
-const unsigned long ENEMY_PERIOD = 400; // Spawn enemies
-const unsigned long GCD_PERIOD = 1;
+const unsigned long ASTEROID_PERIOD = 1000; // Spawn enemies
+const unsigned long LASER_PERIOD = 100;
+const unsigned long GCD_PERIOD = 100;
 
 task tasks[NUM_TASKS];
 
-// Shared states
 volatile unsigned char score = 0;
 volatile unsigned char lives = 3;
 volatile uint8_t currentPos = 0;
@@ -67,10 +67,15 @@ volatile unsigned char fired = 0;
 volatile unsigned char resetTrigger = 0;
 volatile unsigned char buzzerOn = 0;
 volatile unsigned char buzzerTicks = 0;
-volatile uint8_t enemyPos = 15;
-volatile unsigned char enemyAttack = 1;
+volatile uint8_t asteroidX = 15;
+volatile uint8_t asteroidY = 0;
+volatile unsigned char asteroidActive = 1;
 volatile unsigned char gameStarted = 0;
 volatile unsigned char gameEnded = 0;
+volatile uint8_t laserX = 0;
+volatile uint8_t laserY = 2; 
+volatile unsigned char laserActive = 0;
+
 
 void PWM_BuzzerInit() { // Tried using PB0 but does not work so PB1 only works
     DDRB |= (1 << PB1); // PB1 = OC1A
@@ -126,6 +131,13 @@ int TickFct_JoystickMove(int state) {
         lcd_write_character(fireActive ? '|' : 0);
 
         prevPos = pos;
+        if(fireActive && currentPos == asteroidX && gameStarted && !gameEnded){
+            score++;
+            OCR1A = 300; // test tomorrow
+            asteroidX = 15;
+            lcd_goto_xy(0, currentPos);
+            lcd_write_character(' '); // erases enemy
+        }
     }
 
     return state;
@@ -143,8 +155,8 @@ int TickFct_LCD(int state){
             lcd_write_str(message);
             }
             else if (gameStarted){
-                sprintf(message, " ");
-                lcd_write_str(message);
+                lcd_goto_xy(0, 0);
+                lcd_write_str("                ");
             }
             break;
     }
@@ -183,12 +195,18 @@ int TickFct_FireButton(int state){
             break;
         case FIRE_SHOOT:
             fireActive = 1;
-            if(!fired){
-                score++;
+            if (!fired) {
                 fired = 1;
+                fireActive = 1;
+
+                // Start laser
+                laserX = currentPos;
+                laserY = 1;
+                laserActive = 1;
+
                 buzzerOn = 1;
                 OCR1A = 100;
-                buzzerTicks = 5;
+                buzzerTicks = 1;
             }
             break;
     }
@@ -265,7 +283,7 @@ int TickFct_ResetButton(int state) {
         case RESET_PRESS:
             buzzerOn = 1;
             OCR1A = 255;
-            buzzerTicks = 100; // Makes it longer than a fire
+            buzzerTicks = 1; // Makes it longer than a fire
             score = 0;
             lives = 3;
             fireActive = 0;
@@ -309,34 +327,143 @@ int TickFct_Buzzer(int state) {
 
     return state;
 }
-// 7. Enemy Task
-enum Enemy_States {ENEMY_START, ENEMY_MOVE};
-int TickFct_Enemy(int state) {
+enum Asteroid_States {ASTEROID_START, ASTEROID_FALL};
+int TickFct_Asteroid(int state) {
     switch (state) {
-        case ENEMY_START:
-            state = ENEMY_MOVE;
+        case ASTEROID_START:
+            asteroidX = (rand() % 16); // Random column
+            asteroidY = 1;             // Start from top row
+            asteroidActive = 1;
+            state = ASTEROID_FALL;
             break;
-        case ENEMY_MOVE:
-            state = ENEMY_MOVE;
+
+        case ASTEROID_FALL:
+            state = ASTEROID_FALL;
             break;
+
         default:
-            state = ENEMY_START;
+            state = ASTEROID_START;
             break;
     }
 
-    if (enemyAttack) {
-        lcd_goto_xy(0, enemyPos);
-        lcd_write_character(' ');
-        if(gameStarted){
-            enemyPos = (rand() % 15) + 1;
-            // Draw enemy only temporary not permenant must design a custom character
-            lcd_goto_xy(0, enemyPos);
-            lcd_write_character('E');
+    switch(state){
+        case ASTEROID_FALL:
+        if (!gameStarted || gameEnded || !asteroidActive){
+             return state;
         }
+
+        // Clear previous position
+        lcd_goto_xy(asteroidY, asteroidX);
+        lcd_write_character(' ');
+
+        // Move down
+        asteroidY++;
+
+        if (asteroidY > 2) {
+            // Reset asteroid if it reaches bottom
+            asteroidActive = 0;
+            state = ASTEROID_START;
+            return state;
+        }
+
+        // Creates new character
+        lcd_goto_xy(asteroidY, asteroidX);
+        lcd_write_character('*'); // CUSTOM LATER
+
+        // Check collision with player
+        if ((asteroidY == 2 && asteroidX == currentPos) || (asteroidY > 2)) {
+            lives--;
+            buzzerOn = 1;
+            OCR1A = 200;
+            buzzerTicks = 2;
+
+            // Clear asteroid
+            lcd_goto_xy(asteroidY, asteroidX);
+            lcd_write_character(' ');
+
+            asteroidActive = 0;
+
+            if (lives == 0) {
+                gameEnded = 1;
+                lcd_clear();
+                lcd_goto_xy(0, 3);
+                lcd_write_str("GAME OVER");
+            }
+
+            return ASTEROID_START;
+        }
+        break;
     }
 
     return state;
 }
+
+enum Laser_States {LASER_WAIT, LASER_MOVE};
+int TickFct_Laser(int state) {
+    switch (state) {
+        case LASER_WAIT:
+            if(laserActive){
+                state = LASER_MOVE;
+            } else{
+                state = LASER_WAIT;
+            }
+            break;
+
+        case LASER_MOVE:
+            if (!laserActive) {
+                state = LASER_WAIT;
+            } else{
+                state = LASER_MOVE;
+            }
+            break;
+
+        default:
+            state = LASER_WAIT;
+            break;
+    }
+
+    if (!laserActive || !gameStarted || gameEnded){
+        return state;
+    } 
+    switch(state){
+        case LASER_MOVE:
+            // Clear previous position
+            if (laserY < 2) {
+                lcd_goto_xy(laserY, laserX);
+                lcd_write_character(' ');
+            }
+
+            laserY--;
+
+            if (laserY > 1) {
+                // Off screen
+                laserActive = 0;
+                return LASER_WAIT;
+            }
+
+            // Draw new laser
+            lcd_goto_xy(laserY, laserX);
+            lcd_write_character('|');
+
+            // Checks for hit
+            if (laserY == asteroidY && laserX == asteroidX) {
+                score++;
+                laserActive = 0;
+
+                // Removes asteroid
+                lcd_goto_xy(asteroidY, asteroidX);
+                lcd_write_character(' ');
+                asteroidActive = 0;
+
+                OCR1A = 250; // hit tone
+                buzzerTicks = 100;
+            }
+            break;
+    }
+
+    return state;
+}
+
 
 
 int main(void) {
@@ -387,11 +514,15 @@ int main(void) {
     tasks[5].elapsedTime = 0;
     tasks[5].TickFct = &TickFct_Buzzer;
 
-    tasks[6].state = ENEMY_START;
-    tasks[6].period = ENEMY_PERIOD;
+    tasks[6].state = ASTEROID_START;
+    tasks[6].period = ASTEROID_PERIOD;
     tasks[6].elapsedTime = 0;
-    tasks[6].TickFct = &TickFct_Enemy;
+    tasks[6].TickFct = &TickFct_Asteroid;
 
+    tasks[7].state = LASER_WAIT;
+    tasks[7].period = LASER_PERIOD;
+    tasks[7].elapsedTime = 0;
+    tasks[7].TickFct = &TickFct_Laser;
 
     TimerSet(GCD_PERIOD);
     TimerOn();
