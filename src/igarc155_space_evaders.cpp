@@ -1,4 +1,4 @@
-/* Your Name & E-mail: Ivan Garcia-Mora, igarc155@ucr.edu
+ /* Your Name & E-mail: Ivan Garcia-Mora, igarc155@ucr.edu
 *          Discussion Section: 022
 
  *         Assignment: Custom Lab Project
@@ -176,14 +176,17 @@ int TickFct_FireButton(int state){
             }
             break;
         case FIRE_SHOOT:
-            if(!firePressed && !gameStarted && fireToStart){
-                gameStarted = 1;
-                fireToStart = 0;
+            if (!firePressed) {
+                if (!gameStarted && fireToStart) {
+                    gameStarted = 1;
+                    fireToStart = 0;
+                }
                 state = FIRE_WAIT;
-            } else{
+            } else {
                 state = FIRE_SHOOT;
             }
             break;
+
         default:
             state = FIRE_WAIT;
             break;
@@ -366,7 +369,7 @@ int TickFct_Asteroid(int state) {
             break;
         case ASTEROID_FALL:
             // Check collision with player
-            if ((asteroidY == 1 && asteroidX == currentPos) || (asteroidY >= 2)) {
+            if ((asteroidY == 1 && asteroidX == currentPos) || (asteroidY > 2)) {
                 lives--;
                 buzzerOn = 1;
                 OCR1A = 200;
@@ -410,6 +413,10 @@ int TickFct_Asteroid(int state) {
             AsteroidTick++;
             break;
         case ASTEROID_FALL:
+            // clear
+            lcd_goto_xy(asteroidY, asteroidX);
+            lcd_write_character(' ');
+
             // Move down
             asteroidY++;
 
@@ -426,7 +433,7 @@ enum Laser_States {LASER_WAIT, LASER_MOVE};
 int TickFct_Laser(int state) {
     switch (state) {
         case LASER_WAIT:
-            if(laserActive){
+            if(laserActive && gameStarted && !gameEnded){
                 state = LASER_MOVE;
             } else{
                 state = LASER_WAIT;
@@ -434,10 +441,11 @@ int TickFct_Laser(int state) {
             break;
 
         case LASER_MOVE:
-            if ((!laserActive) || (laserY > 1)) {
+            if ((!laserActive || gameEnded || !gameEnded || laserY == 0)) {
                 laserActive = 0;
                 state = LASER_WAIT;
             } else{
+                laserActive = 0;
                 state = LASER_MOVE;
             }
             break;
@@ -446,17 +454,14 @@ int TickFct_Laser(int state) {
             state = LASER_WAIT;
             break;
     }
-
-    if (!laserActive || !gameStarted || gameEnded){
-        return state;
-    } 
     switch(state){
+        case LASER_WAIT:
+            laserActive = 0;
+            break;
         case LASER_MOVE:
             // Clear previous position
-            if (laserY < 2) {
-                lcd_goto_xy(laserY, laserX);
-                lcd_write_character(' ');
-            }
+            lcd_goto_xy(laserY, laserX);
+            lcd_write_character(' ');
 
             laserY--;
 
