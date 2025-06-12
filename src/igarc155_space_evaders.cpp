@@ -201,7 +201,8 @@ int TickFct_FireButton(int state){
             break;
         case FIRE_SHOOT:
             fireActive = 1;
-            if (!fired && !gameEnded && gameStarted) {
+            if (!fired && !gameEnded) {
+                gameStarted = 1;
                 fired = 1;
                 fireActive = 1;
 
@@ -460,7 +461,7 @@ int TickFct_Laser(int state) {
                 asteroidActive = 0;
 
                 OCR1A = 250; // hit tone
-                buzzerTicks = 100;
+                buzzerTicks = 2;
             }
             if(laserY == 0){
                 laserActive = 0;
