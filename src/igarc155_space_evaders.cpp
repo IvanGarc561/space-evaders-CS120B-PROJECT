@@ -75,7 +75,7 @@ volatile unsigned char gameEnded = 0;
 volatile uint8_t laserX = 0;
 volatile uint8_t laserY = 2; 
 volatile unsigned char laserActive = 0;
-
+volatile unsigned char fireToStart = 1;
 
 void PWM_BuzzerInit() { // Tried using PB0 but does not work so PB1 only works
     DDRB |= (1 << PB1); // PB1 = OC1A
@@ -105,7 +105,7 @@ int TickFct_JoystickMove(int state) {
     static uint8_t prevPos = 0;
     unsigned int x = ADC_read(0);
     uint8_t pos = map(x, 0, 1023, 0, 15);
-    if (pos >= 14){
+    if (pos > 15){
         pos = 15; // based on lcd position
     }
 
@@ -123,12 +123,12 @@ int TickFct_JoystickMove(int state) {
             break;
     }
 
-    if (pos != prevPos || fireActive) {
-        gameStarted = 1;
+    if (!gameEnded && (pos != prevPos || fireActive)) {
+        // testing gameStarted = 1;
         lcd_goto_xy(1, prevPos);
         lcd_write_character(' ');
         lcd_goto_xy(1, pos);
-        lcd_write_character((fireActive || laserActive) ? '|' : 0);
+        lcd_write_character(fireActive ? '|' : 0);
 
         prevPos = pos;
         if(fireActive && currentPos == asteroidX && gameStarted && !gameEnded){
@@ -149,19 +149,13 @@ int TickFct_LCD(int state){
     char message[17];
     switch (state) {
         case DISPLAY:
-            if(!gameStarted && !gameEnded){
-                lcd_goto_xy(0, 0);
-                lcd_write_str("Press FIRE to");
-                lcd_goto_xy(1, 0);
-                lcd_write_str("Start the game!");
-            } else if(!gameStarted && gameEnded){
+            if(!gameStarted || gameEnded){
             lcd_goto_xy(0, 0);
             sprintf(message, "Score:%d L:%d", score, lives);
             lcd_write_str(message);
-            } else if (gameStarted){
+            }
+            else if (gameStarted){
                 lcd_goto_xy(0, 0);
-                lcd_write_str("                ");
-                lcd_goto_xy(1, 0);
                 lcd_write_str("                ");
             }
             break;
@@ -183,7 +177,9 @@ int TickFct_FireButton(int state){
             }
             break;
         case FIRE_SHOOT:
-            if(!firePressed){
+            if(!firePressed && !gameStarted && fireToStart){
+                gameStarted = 1;
+                fireToStart = 0;
                 state = FIRE_WAIT;
             } else{
                 state = FIRE_SHOOT;
@@ -201,7 +197,7 @@ int TickFct_FireButton(int state){
             break;
         case FIRE_SHOOT:
             fireActive = 1;
-            if (!fired) {
+            if (!fired && !gameEnded) {
                 fired = 1;
                 fireActive = 1;
 
@@ -289,7 +285,7 @@ int TickFct_ResetButton(int state) {
         case RESET_PRESS:
             buzzerOn = 1;
             OCR1A = 255;
-            buzzerTicks = 1; // Makes it longer than a fire
+            buzzerTicks = 1;
             score = 0;
             lives = 3;
             fireActive = 0;
@@ -297,6 +293,7 @@ int TickFct_ResetButton(int state) {
             lcd_clear();
             gameStarted = 0;
             gameEnded = 0; 
+            fireToStart = 1;
             resetTrigger= 0;
             break;
     }
@@ -333,18 +330,66 @@ int TickFct_Buzzer(int state) {
 
     return state;
 }
-enum Asteroid_States {ASTEROID_START, ASTEROID_FALL};
+
+enum Asteroid_States {ASTEROID_START, ASTEROID_WAIT, ASTEROID_FALL};
 int TickFct_Asteroid(int state) {
+    static unsigned char AsteroidTick = 0;
+    static unsigned char Asteroidtimer = 5;
     switch (state) {
         case ASTEROID_START:
-            asteroidX = (rand() % 16); // Random column
-            asteroidY = 1;             // Start from top row
+            if (!gameStarted || gameEnded) {
+                return state; // Don't spawn anything yet
+            }
+
+            asteroidX = (rand() % 16);
+            asteroidY = 0;
             asteroidActive = 1;
-            state = ASTEROID_FALL;
+            state = ASTEROID_WAIT;
             break;
 
+        case ASTEROID_WAIT:
+            if (gameEnded){
+                return ASTEROID_START;
+            } 
+
+            if(AsteroidTick < Asteroidtimer ){
+                state = ASTEROID_WAIT;
+            } else{
+                state = ASTEROID_FALL;
+                AsteroidTick = 0;
+
+                if(score >= 5){
+                    Asteroidtimer = 3;
+                } else if (score >= 10){
+                    Asteroidtimer = 2;
+                }
+            }
+            break;
         case ASTEROID_FALL:
-            state = ASTEROID_FALL;
+            // Check collision with player
+            if ((asteroidY == 1 && asteroidX == currentPos) || (asteroidY >= 2)) {
+                lives--;
+                buzzerOn = 1;
+                OCR1A = 200;
+                buzzerTicks = 2;
+
+                // Clear asteroid
+                lcd_goto_xy(asteroidY, asteroidX);
+                lcd_write_character(' ');
+
+                asteroidActive = 0;
+
+                if (lives == 0) {
+                    gameEnded = 1;
+                    lcd_clear();
+                    lcd_goto_xy(0, 3);
+                    lcd_write_str("GAME OVER");
+                }
+
+                state = ASTEROID_START;
+            } else{
+                state = ASTEROID_FALL;
+            }
             break;
 
         default:
@@ -353,52 +398,26 @@ int TickFct_Asteroid(int state) {
     }
 
     switch(state){
-        case ASTEROID_FALL:
-        if (!gameStarted || gameEnded || !asteroidActive){
-             return state;
-        }
-
-        // Clear previous position
-        lcd_goto_xy(asteroidY, asteroidX);
-        lcd_write_character(' ');
-
-        // Move down
-        asteroidY++;
-
-        if (asteroidY > 2) {
-            // Reset asteroid if it reaches bottom
-            asteroidActive = 0;
-            state = ASTEROID_START;
-            return state;
-        }
-
-        // Creates new character
-        lcd_goto_xy(asteroidY, asteroidX);
-        lcd_write_character('*'); // CUSTOM LATER
-
-        // Check collision with player
-        if ((asteroidY == 2 && asteroidX == currentPos) || (asteroidY > 2)) {
-            lives--;
-            buzzerOn = 1;
-            OCR1A = 200;
-            buzzerTicks = 2;
-
-            // Clear asteroid
-            lcd_goto_xy(asteroidY, asteroidX);
-            lcd_write_character(' ');
-
-            asteroidActive = 0;
-
-            if (lives == 0) {
-                gameEnded = 1;
-                lcd_clear();
-                lcd_goto_xy(0, 3);
-                lcd_write_str("GAME OVER");
+        case ASTEROID_START:
+            if (!gameStarted || gameEnded || !asteroidActive){
+                return state;
             }
+        
+            break;
+        case ASTEROID_WAIT:
+            // Clear previous position
+            lcd_goto_xy(asteroidY, asteroidX);
+            lcd_write_character('*'); // CUSTOM LATER
+            AsteroidTick++;
+            break;
+        case ASTEROID_FALL:
+            // Move down
+            asteroidY++;
 
-            return ASTEROID_START;
-        }
-        break;
+            // Creates new character
+            lcd_goto_xy(asteroidY, asteroidX);
+            lcd_write_character('*'); // CUSTOM LATER
+            break;
     }
 
     return state;
@@ -416,10 +435,9 @@ int TickFct_Laser(int state) {
             break;
 
         case LASER_MOVE:
-            if (laserY > 1 || !laserActive) {
-                // Off screen
+            if ((!laserActive) || (laserY > 1)) {
                 laserActive = 0;
-                return LASER_WAIT;
+                state = LASER_WAIT;
             } else{
                 state = LASER_MOVE;
             }
@@ -435,15 +453,17 @@ int TickFct_Laser(int state) {
     } 
     switch(state){
         case LASER_MOVE:
+            // Clear previous position
+            if (laserY < 2) {
+                lcd_goto_xy(laserY, laserX);
+                lcd_write_character(' ');
+            }
+
+            laserY--;
+
             // Draw new laser
             lcd_goto_xy(laserY, laserX);
             lcd_write_character('|');
-
-            // Clear previous position
-            if (laserY < 1) {
-                lcd_goto_xy(laserY + 1, laserX);
-                lcd_write_character(' ');
-            }
 
             // Checks for hit
             if (laserY == asteroidY && laserX == asteroidX) {
@@ -457,11 +477,6 @@ int TickFct_Laser(int state) {
 
                 OCR1A = 250; // hit tone
                 buzzerTicks = 2;
-            }
-            if(laserY == 0){
-                laserActive = 0;
-            } else {
-                laserY--;
             }
             break;
     }
