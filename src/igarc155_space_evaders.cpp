@@ -201,8 +201,7 @@ int TickFct_FireButton(int state){
             break;
         case FIRE_SHOOT:
             fireActive = 1;
-            if (!fired && !gameEnded) {
-                gameStarted = 1;
+            if (!fired) {
                 fired = 1;
                 fireActive = 1;
 
@@ -338,12 +337,8 @@ enum Asteroid_States {ASTEROID_START, ASTEROID_FALL};
 int TickFct_Asteroid(int state) {
     switch (state) {
         case ASTEROID_START:
-            if (!gameStarted || gameEnded) {
-                return state; // Don't spawn anything yet
-            }
-
-            asteroidX = (rand() % 16);
-            asteroidY = 0;
+            asteroidX = (rand() % 16); // Random column
+            asteroidY = 1;             // Start from top row
             asteroidActive = 1;
             state = ASTEROID_FALL;
             break;
