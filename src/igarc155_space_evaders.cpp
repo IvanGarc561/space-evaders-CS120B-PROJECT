@@ -131,12 +131,12 @@ int TickFct_JoystickMove(int state) {
         lcd_write_character(fireActive ? '|' : 0);
 
         prevPos = pos;
-        if(fireActive && currentPos == asteroidX && gameStarted && !gameEnded){
+        /*if(fireActive && currentPos == asteroidX && gameStarted && !gameEnded){
             score++;
             OCR1A = 300; // test tomorrow
             lcd_goto_xy(0, currentPos);
             lcd_write_character(' '); // erases enemy
-        }
+        }*/
     }
 
     return state;
@@ -369,7 +369,7 @@ int TickFct_Asteroid(int state) {
             break;
         case ASTEROID_FALL:
             // Check collision with player
-            if ((asteroidY == 1 && asteroidX == currentPos) || (asteroidY > 2)) {
+            if ((asteroidY == 1 && asteroidX == currentPos) || (asteroidY > 2) || (!asteroidActive)) {
                 lives--;
                 buzzerOn = 1;
                 OCR1A = 200;
@@ -407,11 +407,17 @@ int TickFct_Asteroid(int state) {
         
             break;
         case ASTEROID_WAIT:
-            // Clear previous position
-            lcd_goto_xy(asteroidY, asteroidX);
-            lcd_write_character('*'); // CUSTOM LATER
+            if (asteroidActive) {
+                lcd_goto_xy(asteroidY, asteroidX);
+                lcd_write_character('*');
+            } else {
+                lcd_goto_xy(asteroidY, asteroidX);
+                lcd_write_character(' ');
+                state = ASTEROID_START;
+            }
             AsteroidTick++;
-            break;
+        break;
+
         case ASTEROID_FALL:
             // clear
             lcd_goto_xy(asteroidY, asteroidX);
@@ -421,15 +427,21 @@ int TickFct_Asteroid(int state) {
             asteroidY++;
 
             // Creates new character
-            lcd_goto_xy(asteroidY, asteroidX);
-            lcd_write_character('*'); // CUSTOM LATER
+            if (asteroidActive) {
+                lcd_goto_xy(asteroidY, asteroidX);
+                lcd_write_character('*');
+            } else {
+                lcd_goto_xy(asteroidY, asteroidX);
+                lcd_write_character(' ');
+                state = ASTEROID_START;
+            }
             break;
     }
 
     return state;
 }
 
-enum Laser_States {LASER_WAIT, LASER_MOVE};
+enum Laser_States {LASER_WAIT, LASER_MOVE, LASER_HIT};
 int TickFct_Laser(int state) {
     switch (state) {
         case LASER_WAIT:
@@ -441,15 +453,17 @@ int TickFct_Laser(int state) {
             break;
 
         case LASER_MOVE:
-            if ((!laserActive || gameEnded || !gameEnded || laserY == 0)) {
-                laserActive = 0;
-                state = LASER_WAIT;
-            } else{
-                laserActive = 0;
+            if (laserY > 0){
+                laserY--;
                 state = LASER_MOVE;
+            } else if (laserY == asteroidY && laserX == asteroidX && asteroidActive){
+                state = LASER_HIT;
+            } else{
+                state = LASER_WAIT;
             }
             break;
-
+        case LASER_HIT:
+            state = LASER_WAIT;
         default:
             state = LASER_WAIT;
             break;
@@ -463,31 +477,28 @@ int TickFct_Laser(int state) {
             lcd_goto_xy(laserY, laserX);
             lcd_write_character(' ');
 
-            laserY--;
-
-            // Draw new laser
-            lcd_goto_xy(laserY, laserX);
-            lcd_write_character('|');
-
-            // Checks for hit
-            if (laserY == asteroidY && laserX == asteroidX) {
-                score++;
-                laserActive = 0;
-
-                // Removes asteroid
-                lcd_goto_xy(asteroidY, asteroidX);
-                lcd_write_character(' ');
-                asteroidActive = 0;
-
-                OCR1A = 250; // hit tone
-                buzzerTicks = 2;
+            // Move laser up
+            if (laserY > 0) {
+                // Draw new laser
+                lcd_goto_xy(laserY, laserX);
+                lcd_write_character('|');
             }
             break;
+        case LASER_HIT:
+            score++;
+            laserActive = 0;
+            asteroidActive = 0;
+
+            lcd_goto_xy(asteroidY, asteroidX);
+            lcd_write_character(' ');
+            OCR1A = 250;
+            buzzerTicks = 2;
+
+            break;  
     }
 
     return state;
 }
-
 
 
 int main(void) {
