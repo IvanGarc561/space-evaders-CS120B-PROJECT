@@ -104,8 +104,8 @@ enum JoystickMove_States {MOVE_INIT, MOVE_WAIT};
 int TickFct_JoystickMove(int state) {
     static uint8_t prevPos = 0;
     unsigned int x = ADC_read(0);
-    uint8_t pos = map(x, 0, 1023, 0, 15);
-    if (pos > 15){
+    uint8_t pos = map(x, 0, 1023, 0, 16);
+    if (pos >= 15){
         pos = 15; // based on lcd position
     }
 
@@ -134,7 +134,6 @@ int TickFct_JoystickMove(int state) {
         if(fireActive && currentPos == asteroidX && gameStarted && !gameEnded){
             score++;
             OCR1A = 300; // test tomorrow
-            asteroidX = 15;
             lcd_goto_xy(0, currentPos);
             lcd_write_character(' '); // erases enemy
         }
@@ -446,8 +445,7 @@ int TickFct_Laser(int state) {
                 laserActive = 0;
                 state = LASER_WAIT;
             } else{
-                laserActive = 0;
-                state = LASER_MOVE;
+                state = LASER_WAIT;
             }
             break;
 
