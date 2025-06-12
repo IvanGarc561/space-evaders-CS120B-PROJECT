@@ -39,16 +39,6 @@ uint8_t ship_char[8] = { // spaceship design or you the player
   0b11111,
   0b11011,
 };
-uint8_t asteroid_char[8] = {
-    0b00100,
-    0b01110,
-    0b11111,
-    0b01110,
-    0b11111,
-    0b11011,
-    0b01110,
-    0b00100
-};
 
 // Task struct for concurrent synchSMs
 typedef struct _task {
@@ -85,7 +75,7 @@ volatile unsigned char gameEnded = 0;
 volatile uint8_t laserX = 0;
 volatile uint8_t laserY = 2; 
 volatile unsigned char laserActive = 0;
-volatile unsigned char fireToStart = 1;
+
 
 void PWM_BuzzerInit() { // Tried using PB0 but does not work so PB1 only works
     DDRB |= (1 << PB1); // PB1 = OC1A
@@ -133,8 +123,8 @@ int TickFct_JoystickMove(int state) {
             break;
     }
 
-    if (!gameEnded && (pos != prevPos || fireActive)) {
-        // testing gameStarted = 1;
+    if (pos != prevPos || fireActive) {
+        gameStarted = 1;
         lcd_goto_xy(1, prevPos);
         lcd_write_character(' ');
         lcd_goto_xy(1, pos);
@@ -193,9 +183,7 @@ int TickFct_FireButton(int state){
             }
             break;
         case FIRE_SHOOT:
-            if(!firePressed && !gameStarted && fireToStart){
-                gameStarted = 1;
-                fireToStart = 0;
+            if(!firePressed){
                 state = FIRE_WAIT;
             } else{
                 state = FIRE_SHOOT;
@@ -301,7 +289,7 @@ int TickFct_ResetButton(int state) {
         case RESET_PRESS:
             buzzerOn = 1;
             OCR1A = 255;
-            buzzerTicks = 1;
+            buzzerTicks = 1; // Makes it longer than a fire
             score = 0;
             lives = 3;
             fireActive = 0;
@@ -309,7 +297,6 @@ int TickFct_ResetButton(int state) {
             lcd_clear();
             gameStarted = 0;
             gameEnded = 0; 
-            fireToStart = 1;
             resetTrigger= 0;
             break;
     }
@@ -346,66 +333,22 @@ int TickFct_Buzzer(int state) {
 
     return state;
 }
-
-enum Asteroid_States {ASTEROID_START, ASTEROID_WAIT, ASTEROID_FALL};
+enum Asteroid_States {ASTEROID_START, ASTEROID_FALL};
 int TickFct_Asteroid(int state) {
-    static unsigned char AsteroidTick = 0;
-    static unsigned char Asteroidtimer = 5;
     switch (state) {
         case ASTEROID_START:
             if (!gameStarted || gameEnded) {
                 return state; // Don't spawn anything yet
             }
 
-            asteroidX = (rand() % 15);
+            asteroidX = (rand() % 16);
             asteroidY = 0;
             asteroidActive = 1;
-            state = ASTEROID_WAIT;
+            state = ASTEROID_FALL;
             break;
 
-        case ASTEROID_WAIT:
-            if (gameEnded){
-                return ASTEROID_START;
-            } 
-
-            if(AsteroidTick < Asteroidtimer ){
-                state = ASTEROID_WAIT;
-            } else{
-                state = ASTEROID_FALL;
-                AsteroidTick = 0;
-
-                if(score >= 10){
-                    Asteroidtimer = 3;
-                } else if (score >= 20){
-                    Asteroidtimer = 2;
-                }
-            }
-            break;
         case ASTEROID_FALL:
-            // Check collision with player
-            if ((asteroidY == 1 && asteroidX == currentPos) || (asteroidY >= 2)) {
-                lives--;
-                buzzerOn = 1;
-                OCR1A = 200;
-                buzzerTicks = 2;
-
-                // Clear asteroid
-                lcd_goto_xy(asteroidY, asteroidX);
-                lcd_write_character(' ');
-
-                asteroidActive = 0;
-
-                if (lives == 0) {
-                    gameEnded = 1;
-                    lcd_clear();
-                    lcd_goto_xy(0, 3);
-                    lcd_write_str("GAME OVER");
-                }
-
-                state = ASTEROID_START;
-            } else{
-                state = ASTEROID_FALL;
-            }
+            state = ASTEROID_FALL;
             break;
 
         default:
@@ -414,26 +357,52 @@ int TickFct_Asteroid(int state) {
     }
 
     switch(state){
-        case ASTEROID_START:
-            if (!gameStarted || gameEnded || !asteroidActive){
-                return state;
-            }
-        
-            break;
-        case ASTEROID_WAIT:
-            // Clear previous position
-            lcd_goto_xy(asteroidY, asteroidX);
-            lcd_write_character(1); // CUSTOM LATER
-            AsteroidTick++;
-            break;
         case ASTEROID_FALL:
-            // Move down
-            asteroidY++;
+        if (!gameStarted || gameEnded || !asteroidActive){
+             return state;
+        }
 
-            // Creates new character
+        // Clear previous position
+        lcd_goto_xy(asteroidY, asteroidX);
+        lcd_write_character(' ');
+
+        // Move down
+        asteroidY++;
+
+        if (asteroidY > 2) {
+            // Reset asteroid if it reaches bottom
+            asteroidActive = 0;
+            state = ASTEROID_START;
+            return state;
+        }
+
+        // Creates new character
+        lcd_goto_xy(asteroidY, asteroidX);
+        lcd_write_character('*'); // CUSTOM LATER
+
+        // Check collision with player
+        if ((asteroidY == 2 && asteroidX == currentPos) || (asteroidY > 2)) {
+            lives--;
+            buzzerOn = 1;
+            OCR1A = 200;
+            buzzerTicks = 2;
+
+            // Clear asteroid
             lcd_goto_xy(asteroidY, asteroidX);
-            lcd_write_character(1); // CUSTOM LATER
-            break;
+            lcd_write_character(' ');
+
+            asteroidActive = 0;
+
+            if (lives == 0) {
+                gameEnded = 1;
+                lcd_clear();
+                lcd_goto_xy(0, 3);
+                lcd_write_str("GAME OVER");
+            }
+
+            return ASTEROID_START;
+        }
+        break;
     }
 
     return state;
@@ -522,11 +491,7 @@ int main(void) {
         lcd_write_character(ship_char[i]);
     }
     _delay_ms(2);
-    lcd_send_command(0x48);
-    for (int i = 0; i < 8; i++) {
-        lcd_write_character(asteroid_char[i]);
-    }
-    _delay_ms(2);
+
     // Task setup
     tasks[0].state = MOVE_INIT;
     tasks[0].period = JOYSTICK_PERIOD;
