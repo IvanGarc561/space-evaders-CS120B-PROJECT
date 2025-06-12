@@ -115,7 +115,7 @@ int TickFct_JoystickMove(int state) {
     static uint8_t prevPos = 0;
     unsigned int x = ADC_read(0);
     uint8_t pos = map(x, 0, 1023, 0, 15);
-    if (pos > 15){
+    if (pos >= 14){
         pos = 15; // based on lcd position
     }
 
@@ -138,7 +138,7 @@ int TickFct_JoystickMove(int state) {
         lcd_goto_xy(1, prevPos);
         lcd_write_character(' ');
         lcd_goto_xy(1, pos);
-        lcd_write_character(fireActive ? '|' : 0);
+        lcd_write_character((fireActive || laserActive) ? '|' : 0);
 
         prevPos = pos;
         if(fireActive && currentPos == asteroidX && gameStarted && !gameEnded){
