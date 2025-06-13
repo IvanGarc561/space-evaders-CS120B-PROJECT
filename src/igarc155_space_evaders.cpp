@@ -218,46 +218,37 @@ int TickFct_FireButton(int state){
 }
 
 // 4. LED Display Task
-enum LED_States {LED_INIT, LED_BLINK};
+enum LED_States {LED};
 int TickFct_LED(int state) {
     static uint8_t blinkState = 0;
-
-    switch (state) {
-        case LED_INIT:
-            state = LED_BLINK;
-            break;
-        case LED_BLINK:
-            state = LED_BLINK;
-            break;
-        default:
-            state = LED_INIT;
-            break;
+    switch(state){
+        case LED:
+         switch (lives) {
+            case 3:
+                PORTB = SetBit(PORTB, 0, 1); 
+                PORTB = SetBit(PORTB, 2, 1); 
+                PORTB = SetBit(PORTB, 3, 1);
+                break;
+            case 2:
+                PORTB = SetBit(PORTB, 0, 1); 
+                PORTB = SetBit(PORTB, 2, 1); 
+                PORTB = SetBit(PORTB, 3, 0); 
+                break;
+            case 1:
+                blinkState = !blinkState;
+                PORTB = SetBit(PORTB, 0, blinkState); 
+                PORTB = SetBit(PORTB, 2, 0);          
+                PORTB = SetBit(PORTB, 3, 0);          
+                break;
+            default: //dead 
+                blinkState = !blinkState;
+                PORTB = SetBit(PORTB, 0, blinkState);
+                PORTB = SetBit(PORTB, 2, !blinkState);
+                PORTB = SetBit(PORTB, 3, blinkState);
+                gameEnded = 1;
+                break;
+        break;
     }
-
-    switch (lives) {
-        case 3:
-            PORTB = SetBit(PORTB, 0, 1); 
-            PORTB = SetBit(PORTB, 2, 1); 
-            PORTB = SetBit(PORTB, 3, 1);
-            break;
-        case 2:
-            PORTB = SetBit(PORTB, 0, 1); 
-            PORTB = SetBit(PORTB, 2, 1); 
-            PORTB = SetBit(PORTB, 3, 0); 
-            break;
-        case 1:
-            blinkState = !blinkState;
-            PORTB = SetBit(PORTB, 0, blinkState); 
-            PORTB = SetBit(PORTB, 2, 0);          
-            PORTB = SetBit(PORTB, 3, 0);          
-            break;
-        default: //dead 
-            blinkState = !blinkState;
-            PORTB = SetBit(PORTB, 0, blinkState);
-            PORTB = SetBit(PORTB, 2, !blinkState);
-            PORTB = SetBit(PORTB, 3, blinkState);
-            gameEnded = 1;
-            break;
     }
 
     return state;
@@ -534,7 +525,7 @@ int main(void) {
     tasks[2].elapsedTime = 0;
     tasks[2].TickFct = &TickFct_FireButton;
 
-    tasks[3].state = LED_INIT;
+    tasks[3].state = LED;
     tasks[3].period = LED_PERIOD;
     tasks[3].elapsedTime = 0;
     tasks[3].TickFct = &TickFct_LED;
